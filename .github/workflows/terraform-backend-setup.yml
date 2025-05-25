@@ -1,0 +1,118 @@
+name: 'Terraform Backend Setup'
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/backend.tf'
+      - '.github/workflows/terraform-backend-setup.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'terraform/backend.tf'
+      - '.github/workflows/terraform-backend-setup.yml'
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  LOCATION: "eastus"
+  RESOURCE_GROUP: "terraform-state-rg"
+
+jobs:
+  check-backend:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Check if backend exists
+        id: check
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            EXISTS=$(az group exists --name ${{ env.RESOURCE_GROUP }})
+            if [ "$EXISTS" = "true" ]; then
+              echo "Backend infrastructure already exists"
+              echo "should_run=false" >> $GITHUB_OUTPUT
+            else
+              echo "Backend infrastructure needs to be created"
+              echo "should_run=true" >> $GITHUB_OUTPUT
+            fi
+
+  setup-backend:
+    needs: check-backend
+    if: needs.check-backend.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    concurrency: backend-setup
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create Resource Group
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az group create \
+              --name ${{ env.RESOURCE_GROUP }} \
+              --location ${{ env.LOCATION }}
+
+      - name: Create Storage Account
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            STORAGE_ACCOUNT="tfstate$(openssl rand -hex 4)"
+            az storage account create \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name $STORAGE_ACCOUNT \
+              --sku Standard_LRS \
+              --encryption-services blob \
+              --min-tls-version TLS1_2 \
+              --allow-blob-public-access false \
+              --tags Environment=Production Service=Terraform
+
+            # Get storage account key
+            ACCOUNT_KEY=$(az storage account keys list --resource-group ${{ env.RESOURCE_GROUP }} --account-name $STORAGE_ACCOUNT --query '[0].value' -o tsv)
+
+            # Create blob container
+            az storage container create \
+              --name tfstate \
+              --account-name $STORAGE_ACCOUNT \
+              --account-key $ACCOUNT_KEY
+
+            # Enable versioning
+            az storage account blob-service-properties update \
+              --account-name $STORAGE_ACCOUNT \
+              --enable-versioning true
+
+            # Save storage account name as GitHub secret
+            echo "STORAGE_ACCOUNT=$STORAGE_ACCOUNT" >> $GITHUB_ENV
+
+      - name: Set BACKEND_STORAGE_ACCOUNT secret
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh secret set BACKEND_STORAGE_ACCOUNT -b"${{ env.STORAGE_ACCOUNT }}" --repo "${{ github.repository }}"
+
+      - name: Notify Success
+        if: success()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const message = `✅ Backend infrastructure successfully created:
+            - Resource Group: ${{ env.RESOURCE_GROUP }}
+            - Location: ${{ env.LOCATION }}
+            - Storage Account: Created and secured
+            - Container: tfstate`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            })
