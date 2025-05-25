@@ -33,7 +33,7 @@ jobs:
 
     - name: Terraform Init
       working-directory: ${{ env.TF_WORKING_DIR }}
-      run: terraform init
+      run: terraform init -input=false -input=false
 
     - name: Terraform Validate
       working-directory: ${{ env.TF_WORKING_DIR }}
@@ -41,7 +41,7 @@ jobs:
 
     - name: Terraform Plan
       working-directory: ${{ env.TF_WORKING_DIR }}
-      run: terraform plan -out=tfplan
+      run: terraform plan -input=false -out=tfplan
 
     - name: Upload Terraform Plan
       uses: actions/upload-artifact@v4
