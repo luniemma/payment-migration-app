@@ -1,4 +1,4 @@
-name: Azure Terraform CI/CD Pipeline
+name: Azure Terraform CI/CD with OIDC
 
 on:
   push:
@@ -6,34 +6,38 @@ on:
   pull_request:
     branches: ["*"]
 
+permissions:
+  id-token: write  # Required for OIDC login
+  contents: read   # Required to checkout code
+
 env:
   TF_VERSION: "1.6.6"
   TF_WORKING_DIR: terraform
 
 jobs:
   terraform-checks:
-    name: 'Terraform Init/Validate/Plan'
+    name: Terraform Init/Validate/Plan
     runs-on: ubuntu-latest
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: ${{ env.TF_VERSION }}
 
-    - name: Azure Login via Service Principal
-      uses: azure/login@v2
+    - name: Azure Login using OIDC
+      uses: azure/login@v1
       with:
         client-id: ${{ secrets.AZURE_CLIENT_ID }}
         tenant-id: ${{ secrets.AZURE_TENANT_ID }}
         subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
 
     - name: Terraform Init
       working-directory: ${{ env.TF_WORKING_DIR }}
-      run: terraform init -input=false -input=false
+      run: terraform init
 
     - name: Terraform Validate
       working-directory: ${{ env.TF_WORKING_DIR }}
@@ -41,49 +45,34 @@ jobs:
 
     - name: Terraform Plan
       working-directory: ${{ env.TF_WORKING_DIR }}
-      run: terraform plan -input=false -out=tfplan
-
-    - name: Upload Terraform Plan
-      uses: actions/upload-artifact@v4
-      with:
-        name: terraform-plan
-        path: ${{ env.TF_WORKING_DIR }}/tfplan
-        retention-days: 7
+      run: terraform plan -out=tfplan
 
   terraform-apply:
-    name: 'Terraform Apply (Main Branch Only)'
+    name: Terraform Apply on Main
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     needs: terraform-checks
-    environment: production
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: ${{ env.TF_VERSION }}
 
-    - name: Azure Login via Service Principal
-      uses: azure/login@v2
+    - name: Azure Login using OIDC
+      uses: azure/login@v1
       with:
         client-id: ${{ secrets.AZURE_CLIENT_ID }}
         tenant-id: ${{ secrets.AZURE_TENANT_ID }}
         subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
 
     - name: Terraform Init
       working-directory: ${{ env.TF_WORKING_DIR }}
       run: terraform init
 
-    - name: Download Terraform Plan
-      uses: actions/download-artifact@v4
-      with:
-        name: terraform-plan
-        path: ${{ env.TF_WORKING_DIR }}
-
     - name: Terraform Apply
       working-directory: ${{ env.TF_WORKING_DIR }}
-      run: terraform apply tfplan
+      run: terraform apply -auto-approve
