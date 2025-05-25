@@ -1,4 +1,4 @@
-# Deploying Azure Virtual Machines with Terraform
+## Deploying Azure Virtual Machines with Terraform
 
 ![Azure](https://img.shields.io/badge/azure-%230072C6.svg?logo=microsoft-azure&logoColor=white)
 ![Terraform](https://img.shields.io/badge/terraform-%235835CC.svg?logo=terraform&logoColor=white)
