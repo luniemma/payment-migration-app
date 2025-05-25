@@ -1,0 +1,58 @@
+name: 'Terraform Backend Setup'
+
+on:
+  workflow_dispatch:
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  LOCATION: "eastus"
+  RESOURCE_GROUP: "terraform-state-rg"
+
+jobs:
+  setup-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create Resource Group
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az group create \
+              --name ${{ env.RESOURCE_GROUP }} \
+              --location ${{ env.LOCATION }}
+
+      - name: Create Storage Account
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            STORAGE_ACCOUNT="tfstate$(openssl rand -hex 4)"
+            az storage account create \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --name $STORAGE_ACCOUNT \
+              --sku Standard_LRS \
+              --encryption-services blob
+
+            # Get storage account key
+            ACCOUNT_KEY=$(az storage account keys list --resource-group ${{ env.RESOURCE_GROUP }} --account-name $STORAGE_ACCOUNT --query '[0].value' -o tsv)
+
+            # Create blob container
+            az storage container create \
+              --name tfstate \
+              --account-name $STORAGE_ACCOUNT \
+              --account-key $ACCOUNT_KEY
+
+            # Save storage account name as GitHub secret
+            echo "STORAGE_ACCOUNT=$STORAGE_ACCOUNT" >> $GITHUB_ENV
+
+      - name: Set BACKEND_STORAGE_ACCOUNT secret using gh CLI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh secret set BACKEND_STORAGE_ACCOUNT -b"${{ env.STORAGE_ACCOUNT }}" --repo "${{ github.repository }}"
