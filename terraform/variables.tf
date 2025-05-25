@@ -1,3 +1,7 @@
+variable "client_id" {}
+variable "tenant_id" {}
+variable "subscription_id" {}
+
 variable "resource_group_name" {
   description = "Resource group name"
   type        = string
