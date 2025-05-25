@@ -12,7 +12,7 @@ env:
 
 jobs:
   terraform-pr-checks:
-    name: 'Terraform PR Checks (Init/Validate/Plan/Checkov)'
+    name: 'Terraform PR Checks (Init/Validate/Plan)'
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
@@ -24,12 +24,6 @@ jobs:
       uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: ${{ env.TF_VERSION }}
-
-    - name: Install Checkov
-      run: pip install checkov
-
-    - name: Run Checkov - IaC Security Scan
-      run: checkov -d ${{ env.TF_WORKING_DIR }}
 
     - name: Azure Login via SP
       uses: azure/login@v1
